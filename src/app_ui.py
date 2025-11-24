@@ -26,6 +26,13 @@ st.set_page_config(
     layout="wide"
 )
 
+def get_api_key():
+    """Get API key from streamlit secrets or environment."""
+    try:
+        return st.secrets["CFBD_API_KEY"]
+    except (FileNotFoundError, KeyError):
+        return os.getenv("CFBD_API_KEY")
+
 # --- HELPER FUNCTIONS ---
 @st.cache_data
 def load_team_info():
@@ -42,7 +49,7 @@ def load_team_info():
         # else fall through to re-fetch
     
     try:
-        client = CFBDClient()
+        client = CFBDClient(api_key=get_api_key())
         teams_df = client.get_teams()
         if not teams_df.empty:
             # Save relevant columns
@@ -65,7 +72,7 @@ def load_team_info():
 def load_rankings(season, week):
     """Load AP Top 25 rankings for a given week. Returns list and dict."""
     try:
-        client = CFBDClient()
+        client = CFBDClient(api_key=get_api_key())
         # Fetch rankings
         # Note: get_rankings returns a DataFrame where 'polls' column contains the list of polls
         rankings_df = client.get_rankings(season=season, week=week)
