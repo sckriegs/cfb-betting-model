@@ -14,11 +14,8 @@ venv.bak/
 # Data
 data/raw/
 data/processed/
-data/features/
-# Keep models if they are small enough (<100MB), otherwise ignoring them is better 
-# but for this app to work you NEED the models committed or built on fly.
-# Let's assume we commit the latest models for now.
-# data/models/
+# data/features/  <-- Un-commented so features are uploaded
+# data/models/    <-- Kept un-commented so models are uploaded
 
 # IDE
 .vscode/

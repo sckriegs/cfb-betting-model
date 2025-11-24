@@ -5,8 +5,7 @@ requests
 xgboost
 scikit-learn
 python-dotenv
-tenacity
 geopy
 plotly
+tenacity
 typer
-
