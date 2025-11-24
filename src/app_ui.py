@@ -224,16 +224,29 @@ def enrich_picks_data(df):
     # Format ATS Pick: "Team Name (Spread) (Conf)"
     def format_ats_pick(row):
         side, conf = row["ATS Pick Raw"]
+        
+        # Determine which spread to display (DK, then FD, then Market)
+        if pd.notna(row.get('dk_spread_home')) and row.get('dk_spread_home') != "N/A":
+            home_spread_val = row['dk_spread_home']
+        elif pd.notna(row.get('fd_spread_home')) and row.get('fd_spread_home') != "N/A":
+            home_spread_val = row['fd_spread_home']
+        else:
+            home_spread_val = row['market_spread_home']
+            
+        # Parse spread value if it's a string (from formatted columns) or float
+        try:
+            h_spread = float(home_spread_val)
+        except (ValueError, TypeError):
+            h_spread = 0.0 # Fallback
+            
         if side == "Home":
-            return f"{row['home_team']} ({row['Model Spread']}) ({conf}/10)"
+            return f"{row['home_team']} ({h_spread:+.1f}) ({conf}/10)"
         elif side == "Away":
-            # Need to handle 'N/A' string if spread is missing
-            try:
-                spread_val = -float(row['Model Spread'])
-                spread_str = f"{spread_val:+.1f}"
-            except (ValueError, TypeError):
-                spread_str = "N/A"
-            return f"{row['away_team']} ({spread_str}) ({conf}/10)"
+            # Away spread is inverse of home spread
+            # Note: The logic here is "Bet on Away Team at +X.X"
+            # h_spread is home_spread (e.g. -7.5). Away spread is +7.5.
+            # So we negate h_spread.
+            return f"{row['away_team']} ({-h_spread:+.1f}) ({conf}/10)"
         return "N/A"
 
     # Format ML Pick: "Team Name (Conf)"
