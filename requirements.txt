@@ -1,0 +1,12 @@
+streamlit
+pandas
+numpy
+requests
+xgboost
+scikit-learn
+python-dotenv
+tenacity
+geopy
+plotly
+typer
+
