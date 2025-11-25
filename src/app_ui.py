@@ -467,7 +467,7 @@ with tab1:
         display_cols = [
             "away_logo", "away_team_display", "home_logo", "home_team_display", 
             "DK Line", "FD Line", "Model Spread", "ATS Pick",
-            "ML Pick", "Home Win %",
+            "ML Pick",
             "Total", "Model Total", "O/U Pick"
         ]
         

@@ -105,7 +105,7 @@ def to_canonical(name: str) -> str:
         "Penguins", "Racers", "Sycamores", "Leathernecks", "Salukis",
         "Redbirds", "Braves", "Vikings", "Thunderbirds", "Lumberjacks",
         "Hornets", "Aggies", "Mustangs", "Bengals", "Vandals", "Eagles",
-        "Wildcats", "Grizzlies", "Bobcats"
+        "Wildcats", "Grizzlies", "Bobcats", "Golden Flashes"
     ]
     
     for mascot in mascots:

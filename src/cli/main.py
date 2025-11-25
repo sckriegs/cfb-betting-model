@@ -222,6 +222,10 @@ def load_model_week_predictions(season: int, week: int, live_spreads_map: Option
         logger.warning(f"No games found for {season} Week {week}")
         return pd.DataFrame()
 
+    # Canonicalize team names to ensure match with live odds
+    week_df["home_team"] = week_df["home_team"].apply(to_canonical)
+    week_df["away_team"] = week_df["away_team"].apply(to_canonical)
+
     # OVERRIDE spreads with live spreads if provided
     if live_spreads_map:
         logger.info("Overriding feature spreads with live odds for prediction...")
@@ -456,9 +460,9 @@ def filter_top25_power5_picks(picks_df: pd.DataFrame, season: int, week: int) ->
                 
                 # Include if classification is "fbs" (CFBD uses lowercase)
                 if home_team and (pd.isna(home_class) or str(home_class).lower() == "fbs"):
-                    fbs_teams.add(home_team)
+                    fbs_teams.add(to_canonical(home_team))
                 if away_team and (pd.isna(away_class) or str(away_class).lower() == "fbs"):
-                    fbs_teams.add(away_team)
+                    fbs_teams.add(to_canonical(away_team))
             
             # Filter picks to only include FBS teams
             def is_fbs_game(row):
