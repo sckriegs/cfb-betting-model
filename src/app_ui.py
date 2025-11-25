@@ -280,7 +280,10 @@ if features_df is None:
 
 # Load Models (always use latest trained models for prediction logic)
 ats_model, ml_model, total_model, model_year = load_models(sidebar_season)
-st.sidebar.success(f"Loaded Models (Trained on {model_year})")
+if model_year:
+    st.sidebar.success(f"Loaded Models (Trained on 2014-{model_year} data)")
+else:
+    st.sidebar.warning("No models found.")
 
 tab1, tab2, tab3 = st.tabs(["📊 Weekly Dashboard", "🧪 The Lab (Hypothetical)", "📈 Team Stats"])
 
