@@ -21,8 +21,14 @@ def prepare_total_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     Returns:
         Tuple of (X, y) where y is total points
     """
+    # Filter to valid target data
+    valid_df = df.dropna(subset=["total_points"]).copy()
+    
+    if valid_df.empty:
+        return pd.DataFrame(), pd.Series()
+    
     # Target is total_points
-    y = df["total_points"].copy()
+    y = valid_df["total_points"].copy()
 
     # Select feature columns
     exclude_cols = [
@@ -34,9 +40,9 @@ def prepare_total_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         "home_margin",
         "total_points",
     ]
-    feature_cols = [c for c in df.columns if c not in exclude_cols]
+    feature_cols = [c for c in valid_df.columns if c not in exclude_cols]
 
-    X = df[feature_cols].copy()
+    X = valid_df[feature_cols].copy()
 
     # Fill missing values
     X = X.fillna(0)
@@ -86,5 +92,3 @@ def train_total_model(season: int, features_df: pd.DataFrame) -> TotalsModel:
     logger.info(f"Saved totals model to {model_path}")
 
     return model
-
-

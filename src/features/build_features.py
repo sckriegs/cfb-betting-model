@@ -312,6 +312,37 @@ def build_features_for_season(season: int, force_refresh: bool = False) -> pd.Da
     ratings_srs = read_parquet(str(raw_dir / "ratings_srs" / f"{season}.parquet"))
     weather = read_parquet(str(data_dir / "weather" / f"{season}.parquet"))
     venues = read_parquet(str(raw_dir / "venues" / "venues.parquet"))
+    
+    # Load new data sources (handle missing files gracefully)
+    talent = read_parquet(str(raw_dir / "talent" / f"{season}.parquet"))
+    returning = read_parquet(str(raw_dir / "returning" / f"{season}.parquet"))
+    coaches = read_parquet(str(raw_dir / "coaches" / f"{season}.parquet"))
+
+    # Pre-process coaches into a lookup map: (team) -> tenure
+    # Since we loaded coaches for a specific season, we just need to find the coach for each team
+    coach_tenure_map = {}
+    if coaches is not None and not coaches.empty:
+        try:
+            for _, coach_row in coaches.iterrows():
+                seasons_list = coach_row.get("seasons")
+                if isinstance(seasons_list, (list, np.ndarray)):
+                    # Find the school/team for the current season in this list
+                    current_school = None
+                    tenure = 0
+                    
+                    # First pass: find current school for this season
+                    for s_obj in seasons_list:
+                        if isinstance(s_obj, dict) and s_obj.get("year") == season:
+                            current_school = s_obj.get("school")
+                            break
+                    
+                    # Second pass: calculate tenure at this school
+                    if current_school:
+                        # Count seasons at this school up to current season
+                        tenure = sum(1 for s in seasons_list if isinstance(s, dict) and s.get("school") == current_school and s.get("year") <= season)
+                        coach_tenure_map[current_school] = tenure
+        except Exception as e:
+            logger.warning(f"Error processing coaches data: {e}")
 
     # Merge venues to get lat/lon
     if venues is not None and not venues.empty:
@@ -480,6 +511,37 @@ def build_features_for_season(season: int, force_refresh: bool = False) -> pd.Da
                 if not away_srs_rating.empty:
                     away_srs = away_srs_rating.iloc[0].get("rating")
 
+            # ===== NEW FEATURES =====
+            # Talent
+            home_talent = 0.0
+            away_talent = 0.0
+            if talent is not None and not talent.empty:
+                # Use "team" column for Talent (checked via cli)
+                home_t = talent[talent["team"] == home_team]
+                away_t = talent[talent["team"] == away_team]
+                if not home_t.empty:
+                    home_talent = home_t.iloc[0].get("talent", 0.0)
+                if not away_t.empty:
+                    away_talent = away_t.iloc[0].get("talent", 0.0)
+
+            # Returning Production
+            home_returning = 0.0
+            away_returning = 0.0
+            if returning is not None and not returning.empty:
+                home_r = returning[returning["team"] == home_team]
+                away_r = returning[returning["team"] == away_team]
+                if not home_r.empty:
+                    # Use total returning production (or average of off/def)
+                    home_returning = home_r.iloc[0].get("totalPPA", 0.0) # Or usage/production
+                    if pd.isna(home_returning): home_returning = home_r.iloc[0].get("totalPercent", 0.0)
+                if not away_r.empty:
+                    away_returning = away_r.iloc[0].get("totalPPA", 0.0)
+                    if pd.isna(away_returning): away_returning = away_r.iloc[0].get("totalPercent", 0.0)
+
+            # Coaches (use pre-calculated map)
+            home_coach_tenure = coach_tenure_map.get(home_team, 0)
+            away_coach_tenure = coach_tenure_map.get(away_team, 0)
+
             # Build feature row with rolling performance stats
             # Priority: 1) Advanced rolling stats, 2) SP+/SRS ratings, 3) Rest days
             row = {
@@ -490,6 +552,17 @@ def build_features_for_season(season: int, force_refresh: bool = False) -> pd.Da
                 "kickoff_dt": kickoff_dt,
                 "home_margin": home_margin,
                 "total_points": total_points,
+                
+                # ===== NEW FEATURES =====
+                "home_talent": home_talent,
+                "away_talent": away_talent,
+                "home_returning_production": home_returning,
+                "away_returning_production": away_returning,
+                "home_coach_tenure": home_coach_tenure,
+                "away_coach_tenure": away_coach_tenure,
+                "talent_diff": home_talent - away_talent,
+                "returning_diff": home_returning - away_returning,
+                "coach_tenure_diff": home_coach_tenure - away_coach_tenure,
                 
                 # ===== ADVANCED ROLLING STATS (PRIORITY 1) =====
                 # Last 3 games - most recent form (most predictive)

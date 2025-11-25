@@ -187,12 +187,13 @@ def fetch_odds(
     logger.info(f"Fetched {len(quotes)} odds quotes")
 
 
-def load_model_week_predictions(season: int, week: int) -> pd.DataFrame:
+def load_model_week_predictions(season: int, week: int, live_spreads_map: Optional[dict] = None) -> pd.DataFrame:
     """Load model predictions for a week.
 
     Args:
         season: Season year
         week: Week number
+        live_spreads_map: Optional dictionary of {(home, away): feature_spread} to override feature spreads
 
     Returns:
         DataFrame with predictions
@@ -220,6 +221,15 @@ def load_model_week_predictions(season: int, week: int) -> pd.DataFrame:
     if week_df.empty:
         logger.warning(f"No games found for {season} Week {week}")
         return pd.DataFrame()
+
+    # OVERRIDE spreads with live spreads if provided
+    if live_spreads_map:
+        logger.info("Overriding feature spreads with live odds for prediction...")
+        for idx, row in week_df.iterrows():
+            key = (row["home_team"], row["away_team"])
+            if key in live_spreads_map:
+                # Update directly in dataframe
+                week_df.at[idx, "market_spread_home"] = live_spreads_map[key]
 
     # Load models (use model from this season, or latest available)
     model_season = season
@@ -262,7 +272,8 @@ def load_model_week_predictions(season: int, week: int) -> pd.DataFrame:
     # Prepare ATS features (exclude market_spread_home from features)
     ats_exclude_cols = [
         "home_team", "away_team", "season", "week", "kickoff_dt",
-        "home_margin", "total_points", "market_spread_home"
+        "home_margin", "total_points", 
+        # "market_spread_home" # Keep spread for ATS prediction!
     ]
     ats_feature_cols = [c for c in week_df.columns if c not in ats_exclude_cols]
     X_ats = week_df[ats_feature_cols].copy().fillna(0)
@@ -307,8 +318,8 @@ def load_model_week_predictions(season: int, week: int) -> pd.DataFrame:
         """Calculate expected margin standard deviation based on team strength.
         
         Dynamic std dev based on SP+ difference:
-        - Large favorites (SP+ diff > 20): Smaller variance (std ~12 pts)
-        - Close games (SP+ diff < 5): Larger variance (std ~15 pts)
+        - Large favorites (SP+ diff > 20): Smaller variance (std ~11 pts)
+        - Close games (SP+ diff < 5): Larger variance (std ~13 pts)
         - Blowouts (SP+ diff > 30): Very small variance (std ~10 pts)
         
         Args:
@@ -323,13 +334,13 @@ def load_model_week_predictions(season: int, week: int) -> pd.DataFrame:
         if sp_diff > 30:  # Blowouts
             return 10.0
         elif sp_diff > 20:  # Large favorites
-            return 12.0
+            return 11.0
         elif sp_diff > 10:  # Moderate favorites
-            return 13.0
+            return 12.0
         elif sp_diff > 5:   # Small favorites
-            return 14.0
+            return 12.5
         else:  # Close games
-            return 15.0  # Higher variance for toss-ups
+            return 13.0  # Higher variance for toss-ups, but tightened to reduce false confidence
     
     fair_spreads = []
     market_spreads = week_df.get("market_spread_home", pd.Series([np.nan] * len(week_df)))
@@ -345,42 +356,36 @@ def load_model_week_predictions(season: int, week: int) -> pd.DataFrame:
         
         # Convert ATS probability to fair spread
         # P(home covers) = P(margin > -market_spread)
-        # For a fair spread, P(margin > -fair_spread) = ats_prob
-        # Using normal distribution: P(margin > x) = 1 - norm.cdf(x / std)
-        # So: 1 - norm.cdf(-fair_spread / std) = ats_prob
-        # Solving: fair_spread = -norm.ppf(1 - ats_prob) * std
+        # Fair spread is where P(margin > -fair_spread) = 0.5
+        # 
+        # We know: P(margin > -market_spread) = ats_prob
+        # This means: -market_spread / std = norm.ppf(ats_prob)
+        # 
+        # For fair spread (P = 0.5): -fair_spread / std = norm.ppf(0.5) = 0
+        # So: fair_spread = market_spread + (norm.ppf(ats_prob) - norm.ppf(0.5)) * std
+        # Since norm.ppf(0.5) = 0: fair_spread = market_spread + norm.ppf(ats_prob) * std
+        #
+        # If ats_prob > 0.5, norm.ppf(ats_prob) > 0, so fair_spread > market_spread
+        # This means fair_spread is less negative (closer to 0), which means less favoritism
+        # But if ats_prob > 0.5, home is MORE likely to cover, so we should favor home MORE
+        # 
+        # Actually, the correct interpretation:
+        # - market_spread = -7 means home is favored by 7
+        # - ats_prob = 0.6 means P(margin > 7) = 0.6, so home is MORE likely to cover
+        # - This means the fair spread should favor home MORE (more negative, e.g., -10)
+        # - So: fair_spread = market_spread - adjustment (more negative)
+        # - But we want edge = fair_spread - market_spread to be positive when ats_prob > 0.5
+        # - So: fair_spread = market_spread + adjustment (so edge = adjustment > 0)
         
         if pd.notna(ats_prob) and 0 < ats_prob < 1:
-            # Convert ATS probability to fair spread
-            # P(home covers) = P(margin > -market_spread)
-            # Fair spread is where P(margin > -fair_spread) = 0.5
-            # 
-            # We know: P(margin > -market_spread) = ats_prob
-            # This means: -market_spread / std = norm.ppf(ats_prob)
-            # 
-            # For fair spread (P = 0.5): -fair_spread / std = norm.ppf(0.5) = 0
-            # So: fair_spread = market_spread + (norm.ppf(ats_prob) - norm.ppf(0.5)) * std
-            # Since norm.ppf(0.5) = 0: fair_spread = market_spread + norm.ppf(ats_prob) * std
-            #
-            # If ats_prob > 0.5, norm.ppf(ats_prob) > 0, so fair_spread > market_spread
-            # This means fair_spread is less negative (closer to 0), which means less favoritism
-            # But if ats_prob > 0.5, home is MORE likely to cover, so we should favor home MORE
-            # 
-            # Actually, the correct interpretation:
-            # - market_spread = -7 means home is favored by 7
-            # - ats_prob = 0.6 means P(margin > 7) = 0.6, so home is MORE likely to cover
-            # - This means the fair spread should favor home MORE (more negative, e.g., -10)
-            # - So: fair_spread = market_spread - adjustment (more negative)
-            # - But we want edge = fair_spread - market_spread to be positive when ats_prob > 0.5
-            # - So: fair_spread = market_spread + adjustment (so edge = adjustment > 0)
-            
             if pd.notna(market_spread):
                 z_score = norm.ppf(ats_prob)  # z-score for P(home covers)
-                # Adjustment: how much the spread should move to get to 50% probability
+                # Adjustment: how much the margin differs from the implied market margin
                 adjustment = z_score * margin_std
-                # Fair spread = market spread + adjustment (so edge = adjustment)
-                # If ats_prob > 0.5, z_score > 0, adjustment > 0, fair_spread > market_spread
-                # edge = fair_spread - market_spread = adjustment > 0, so we pick Home ✓
+                
+                # Fair Margin Calculation:
+                # market_spread from features is the "Hurdle" (e.g. +7 for -7 favorite)
+                # We want Fair Margin = Hurdle + Adjustment
                 fair_spread = market_spread + adjustment
             else:
                 # Fallback: use ML probability if no market spread
@@ -554,48 +559,15 @@ def load_cfbd_closing_lines(season: int, week: int) -> pd.DataFrame:
 
     result_df = pd.DataFrame(results)
     
-    # If we have games data, we can try to get ML from there
-    games_df = read_parquet(str(data_dir / "raw" / "games" / f"{season}.parquet"))
-    if games_df is not None and not games_df.empty:
-        week_games = games_df[games_df["week"] == week].copy()
-        if not week_games.empty:
-            # Try to merge and get ML from games if available
-            # This is a fallback - CFBD lines endpoint may not have ML
-            pass
-
     return result_df
 
 
-@app.command()
-def pick_week(
-    season: int = typer.Argument(..., help="Season year"),
-    week: int = typer.Argument(..., help="Week number"),
-    use_live_odds: bool = typer.Option(False, "--use-live-odds", help="Fetch live odds from API"),
-    save: bool = typer.Option(False, "--save", help="Save picks to database"),
-):
-    """Generate picks for a week."""
+def generate_picks(season: int, week: int, use_live_odds: bool = False) -> pd.DataFrame:
+    """Generate picks DataFrame for a week."""
     from src.data.persist import get_data_dir
-
-    # Load predictions
-    predictions_df = load_model_week_predictions(season, week)
-
-    if predictions_df.empty:
-        logger.warning("No predictions available - using placeholder")
-        # Create placeholder predictions for demonstration
-        predictions_df = pd.DataFrame(
-            {
-                "home_team": ["Team A", "Team B"],
-                "away_team": ["Team C", "Team D"],
-                "fair_spread_home": [-3.5, 7.0],
-                "p_home_win": [0.65, 0.45],
-                "fair_total": [55.5, 48.0],
-            }
-        )
-
-    # Load market lines
-    # TEMP: Force use_live_odds to True for testing
-    use_live_odds = True
-    logger.info(f"use_live_odds flag = {use_live_odds}")
+    
+    live_spreads_map = {}
+    market_df = pd.DataFrame()
     
     if use_live_odds:
         logger.info("Loading live odds...")
@@ -613,7 +585,7 @@ def pick_week(
             market_df = load_cfbd_closing_lines(season, week)
             if market_df.empty:
                 logger.error("No odds data available (neither live nor historical)")
-                return
+                # Continue without market data (will use 0 spread)
             else:
                 logger.info(f"Using CFBD closing lines: {len(market_df)} games")
         else:
@@ -639,10 +611,21 @@ def pick_week(
                     record["fd_spread_home"] = fd_spread.iloc[0]
                 
                 # Use DraftKings spread as primary, fall back to FanDuel
+                # IMPORTANT: Live Spreads are usually "Home +9.5" (Dog).
+                # Feature Convention: Dog is -9.5.
+                # So we must NEGATE the spread for the feature map.
+                primary_spread = None
                 if not dk_spread.empty:
-                    record["market_spread_home"] = dk_spread.iloc[0]
+                    primary_spread = dk_spread.iloc[0]
                 elif not fd_spread.empty:
-                    record["market_spread_home"] = fd_spread.iloc[0]
+                    primary_spread = fd_spread.iloc[0]
+                
+                if primary_spread is not None:
+                    record["market_spread_home"] = primary_spread
+                    # Store in map for prediction injection (NEGATED for Feature Convention)
+                    # Assuming standard US odds where + is dog. 
+                    # Feature convention uses - for dog/cushion.
+                    live_spreads_map[(home, away)] = -primary_spread
                 
                 # Moneylines: use DraftKings as primary
                 mls = game_odds[game_odds["market"] == "h2h"]
@@ -671,6 +654,13 @@ def pick_week(
         logger.info("Loading CFBD closing lines...")
         market_df = load_cfbd_closing_lines(season, week)
 
+    # Load predictions with INJECTED live spreads
+    predictions_df = load_model_week_predictions(season, week, live_spreads_map)
+
+    if predictions_df.empty:
+        logger.warning("No predictions available - using placeholder")
+        return pd.DataFrame()
+
     # Merge predictions with market
     picks_df = predictions_df.copy()
     
@@ -694,7 +684,7 @@ def pick_week(
                 )
 
     # Calculate edges and Kelly
-    if "market_spread_home" in market_df.columns:
+    if not market_df.empty and "market_spread_home" in market_df.columns:
         # Include dk_spread_home and fd_spread_home if they exist
         merge_cols = ["home_team", "away_team", "market_spread_home"]
         if "dk_spread_home" in market_df.columns:
@@ -708,7 +698,6 @@ def pick_week(
             how="left",
         )
         # Correct edge calculation: Fair (Margin) + Market (Spread)
-        # Example: Fair +24.4 (Home wins by 24.4) + Market -32.5 (Home favored by 32.5) = -8.1 (Home doesn't cover)
         picks_df["edge_spread_pts"] = (
             picks_df["fair_spread_home"] + picks_df["market_spread_home"]
         )
@@ -725,7 +714,7 @@ def pick_week(
             axis=1,
         )
 
-    if "market_ml_home" in market_df.columns:
+    if not market_df.empty and "market_ml_home" in market_df.columns:
         picks_df = picks_df.merge(
             market_df[["home_team", "away_team", "market_ml_home"]],
             on=["home_team", "away_team"],
@@ -744,7 +733,7 @@ def pick_week(
             axis=1,
         )
 
-    if "market_total" in market_df.columns:
+    if not market_df.empty and "market_total" in market_df.columns:
         picks_df = picks_df.merge(
             market_df[["home_team", "away_team", "market_total"]],
             on=["home_team", "away_team"],
@@ -766,6 +755,29 @@ def pick_week(
 
     # Filter to focus on top 25 teams and Power 5 matchups
     picks_df = filter_top25_power5_picks(picks_df, season, week)
+    
+    return picks_df
+
+
+@app.command()
+def pick_week(
+    season: int = typer.Argument(..., help="Season year"),
+    week: int = typer.Argument(..., help="Week number"),
+    use_live_odds: bool = typer.Option(False, "--use-live-odds", help="Fetch live odds from API"),
+    save: bool = typer.Option(False, "--save", help="Save picks to database"),
+):
+    """Generate picks for a week."""
+    from src.data.persist import get_data_dir
+
+    # Force live odds for now based on user preference
+    use_live_odds = True
+    logger.info(f"use_live_odds flag = {use_live_odds}")
+    
+    picks_df = generate_picks(season, week, use_live_odds)
+    
+    if picks_df.empty:
+        logger.error("Failed to generate picks")
+        return
 
     # Save CSV
     data_dir = get_data_dir()
@@ -785,5 +797,3 @@ def pick_week(
 
 if __name__ == "__main__":
     app()
-
-

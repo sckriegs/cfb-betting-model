@@ -30,9 +30,14 @@ def prepare_ats_data(df: pd.DataFrame, market_spread_col: str = "market_spread_h
         logger.warning(f"Market spread column {market_spread_col} not found, using 0")
         df[market_spread_col] = 0.0
     
-    # Filter to only games with valid market spreads (not null, not 0)
+    # Filter to only games with valid market spreads (not null, not 0) and valid home_margin
     # This ensures we're training on the correct target: home covers, not home wins
-    valid_spreads = df[df[market_spread_col].notna() & (df[market_spread_col] != 0.0)].copy()
+    # And ensures we have the outcome
+    valid_spreads = df[
+        df[market_spread_col].notna() & 
+        (df[market_spread_col] != 0.0) & 
+        df["home_margin"].notna()
+    ].copy()
     
     if len(valid_spreads) == 0:
         logger.warning("No games with valid market spreads found for ATS training")
@@ -45,6 +50,7 @@ def prepare_ats_data(df: pd.DataFrame, market_spread_col: str = "market_spread_h
     y = (valid_spreads["home_margin"] - valid_spreads[market_spread_col] > 0).astype(int)
 
     # Select feature columns (exclude targets and identifiers)
+    # We keep market_spread_col in the features so the model knows the hurdle
     exclude_cols = [
         "home_team",
         "away_team",
@@ -53,7 +59,7 @@ def prepare_ats_data(df: pd.DataFrame, market_spread_col: str = "market_spread_h
         "kickoff_dt",
         "home_margin",
         "total_points",
-        market_spread_col,
+        # market_spread_col, # KEEP THIS!
     ]
     feature_cols = [c for c in valid_spreads.columns if c not in exclude_cols]
 
@@ -107,5 +113,3 @@ def train_ats_model(season: int, features_df: pd.DataFrame) -> ATSModel:
     logger.info(f"Saved ATS model to {model_path}")
 
     return model
-
-

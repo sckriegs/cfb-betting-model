@@ -195,10 +195,63 @@ class CFBDClient:
         params = {"year": season, "seasonType": "regular"}
         if week is not None:
             params["week"] = week
-        if poll:
-            params["poll"] = poll
-
+        
+        # Special handling for poll parameter
+        # CFBD uses 'poll' param correctly but 'ap' isn't standard value for it?
+        # API docs say: /rankings?year=2024&week=1&seasonType=regular
+        # It returns ALL polls. We can filter client-side or rely on parsing.
+        
         response = self._get("/rankings", params=params)
+        data = response.json()
+        return pd.DataFrame(data) if data else pd.DataFrame()
+
+    def get_talent(self, season: int) -> pd.DataFrame:
+        """Get team talent composite rankings.
+
+        Args:
+            season: Season year
+
+        Returns:
+            DataFrame with talent data
+        """
+        params = {"year": season}
+        response = self._get("/talent", params=params)
+        data = response.json()
+        return pd.DataFrame(data) if data else pd.DataFrame()
+
+    def get_returning_production(self, season: int, team: Optional[str] = None) -> pd.DataFrame:
+        """Get returning production metrics.
+
+        Args:
+            season: Season year
+            team: Team name filter (optional)
+
+        Returns:
+            DataFrame with returning production data
+        """
+        params = {"year": season}
+        if team:
+            params["team"] = team
+            
+        response = self._get("/player/returning", params=params)
+        data = response.json()
+        return pd.DataFrame(data) if data else pd.DataFrame()
+
+    def get_coaches(self, season: int, team: Optional[str] = None) -> pd.DataFrame:
+        """Get coach information.
+
+        Args:
+            season: Season year
+            team: Team name filter (optional)
+
+        Returns:
+            DataFrame with coach data
+        """
+        params = {"year": season}
+        if team:
+            params["team"] = team
+            
+        response = self._get("/coaches", params=params)
         data = response.json()
         return pd.DataFrame(data) if data else pd.DataFrame()
 

@@ -21,8 +21,14 @@ def prepare_ml_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
     Returns:
         Tuple of (X, y) where y is binary (1 if home wins)
     """
+    # Filter to valid home_margin
+    valid_df = df.dropna(subset=["home_margin"]).copy()
+    
+    if valid_df.empty:
+        return pd.DataFrame(), pd.Series()
+    
     # Create target: home_win = (home_margin > 0)
-    y = (df["home_margin"] > 0).astype(int)
+    y = (valid_df["home_margin"] > 0).astype(int)
 
     # Select feature columns
     exclude_cols = [
@@ -34,9 +40,9 @@ def prepare_ml_data(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         "home_margin",
         "total_points",
     ]
-    feature_cols = [c for c in df.columns if c not in exclude_cols]
+    feature_cols = [c for c in valid_df.columns if c not in exclude_cols]
 
-    X = df[feature_cols].copy()
+    X = valid_df[feature_cols].copy()
 
     # Fill missing values
     X = X.fillna(0)
@@ -86,5 +92,3 @@ def train_ml_model(season: int, features_df: pd.DataFrame) -> MoneylineModel:
     logger.info(f"Saved moneyline model to {model_path}")
 
     return model
-
-

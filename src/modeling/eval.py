@@ -178,9 +178,18 @@ def evaluate_total(test_df: pd.DataFrame, model, market_total_col: str = "market
     y_pred = model.predict(X)
 
     if market_total_col in test_df.columns:
-        market_total = test_df[market_total_col].values
-        mae_vs_market = mean_absolute_error(market_total, y_pred)
-        correlation = np.corrcoef(market_total, y_pred)[0, 1] if len(market_total) > 1 else 0.0
+        # Align market_total with X using the index
+        # X has only valid rows (subset of test_df)
+        market_total = test_df.loc[X.index, market_total_col]
+        
+        # Drop NaNs from market_total for comparison
+        valid_mask = market_total.notna()
+        if valid_mask.any():
+            mae_vs_market = mean_absolute_error(market_total[valid_mask], y_pred[valid_mask])
+            correlation = np.corrcoef(market_total[valid_mask], y_pred[valid_mask])[0, 1] if len(market_total[valid_mask]) > 1 else 0.0
+        else:
+            mae_vs_market = None
+            correlation = None
     else:
         mae_vs_market = None
         correlation = None
@@ -271,5 +280,3 @@ def backtest(
     logger.info(f"Saved backtest results to {results_path}")
 
     return results_df
-
-

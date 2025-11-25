@@ -87,6 +87,33 @@ def ingest_season(season: int, client: Optional[CFBDClient] = None) -> None:
     if not srs_ratings.empty:
         write_parquet(srs_ratings, str(raw_dir / "ratings_srs" / f"{season}.parquet"))
 
+    # Talent (new)
+    logger.info(f"  Fetching Talent ratings for {season}...")
+    try:
+        talent = client.get_talent(season=season)
+        if not talent.empty:
+            write_parquet(talent, str(raw_dir / "talent" / f"{season}.parquet"))
+    except Exception as e:
+        logger.warning(f"Could not fetch talent for {season}: {e}")
+
+    # Returning Production (new)
+    logger.info(f"  Fetching Returning Production for {season}...")
+    try:
+        returning = client.get_returning_production(season=season)
+        if not returning.empty:
+            write_parquet(returning, str(raw_dir / "returning" / f"{season}.parquet"))
+    except Exception as e:
+        logger.warning(f"Could not fetch returning production for {season}: {e}")
+
+    # Coaches (new)
+    logger.info(f"  Fetching Coaches for {season}...")
+    try:
+        coaches = client.get_coaches(season=season)
+        if not coaches.empty:
+            write_parquet(coaches, str(raw_dir / "coaches" / f"{season}.parquet"))
+    except Exception as e:
+        logger.warning(f"Could not fetch coaches for {season}: {e}")
+
     logger.info(f"Season {season} ingestion complete")
 
 

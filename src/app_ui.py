@@ -206,6 +206,7 @@ def enrich_picks_data(df):
     df["Model Spread"] = df["fair_spread_home"].apply(lambda x: f"{x:+.1f}" if pd.notna(x) else "N/A")
     df["Total"] = df["market_total"].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "N/A")
     df["Model Total"] = df["fair_total"].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "N/A")
+    df["Home Win %"] = df["p_home_win"].apply(lambda x: f"{x:.1%}" if pd.notna(x) else "N/A")
     
     if "dk_spread_home" in df.columns:
         df["DK Line"] = df.apply(lambda x: f"{x['dk_spread_home']:+.1f}" if pd.notna(x['dk_spread_home']) else (f"{x['market_spread_home']:+.1f}" if pd.notna(x['market_spread_home']) else "N/A"), axis=1)
@@ -216,7 +217,7 @@ def enrich_picks_data(df):
         df["FD Line"] = df.apply(lambda x: f"{x['fd_spread_home']:+.1f}" if pd.notna(x['fd_spread_home']) else (f"{x['market_spread_home']:+.1f}" if pd.notna(x['market_spread_home']) else "N/A"), axis=1)
     else:
         df["FD Line"] = df["market_spread_home"].apply(lambda x: f"{x:+.1f}" if pd.notna(x) else "N/A")
-
+        
     # 2. Calculate Picks using the formatted columns
     df["ATS Pick Raw"] = df.apply(lambda x: get_ats_pick(x['fair_spread_home'], x['market_spread_home']), axis=1)
     df["ML Pick Raw"] = df.apply(lambda x: get_ml_pick(x['p_home_win'], x['market_ml_home']), axis=1)
@@ -243,9 +244,6 @@ def enrich_picks_data(df):
             return f"{row['home_team']} ({h_spread:+.1f}) ({conf}/10)"
         elif side == "Away":
             # Away spread is inverse of home spread
-            # Note: The logic here is "Bet on Away Team at +X.X"
-            # h_spread is home_spread (e.g. -7.5). Away spread is +7.5.
-            # So we negate h_spread.
             return f"{row['away_team']} ({-h_spread:+.1f}) ({conf}/10)"
         return "N/A"
 
@@ -313,22 +311,25 @@ with tab1:
     # 3. Check if file exists
     file_path = reports_dir / f"{sidebar_season}_w{selected_week}_picks.csv"
     
-    if file_path.exists():
+    # Force regeneration checkbox
+    force_refresh = st.checkbox("Force Refresh (Fetch Live Odds)")
+    
+    if file_path.exists() and not force_refresh:
         # Load existing
         picks_df = pd.read_csv(file_path)
         st.success(f"Loaded existing picks for Week {selected_week}")
     else:
         # Generate on demand
-        st.info(f"Generating picks for Week {selected_week}...")
+        st.info(f"Generating picks for Week {selected_week} with Live Odds...")
         
         # Import necessary prediction logic
-        from src.cli.main import load_model_week_predictions
+        from src.cli.main import generate_picks
         
         # Run prediction
         with st.spinner("Running model..."):
             try:
-                # Use the CLI function directly
-                preds_df = load_model_week_predictions(sidebar_season, selected_week)
+                # Use the new generate_picks function which handles live odds injection
+                preds_df = generate_picks(sidebar_season, selected_week, use_live_odds=True)
                 
                 if not preds_df.empty:
                     # Save it for next time
@@ -367,17 +368,13 @@ with tab1:
             picks_df["away_logo"] = None
             picks_df["home_conf"] = None
             picks_df["away_conf"] = None
-
+        
         # Load Rankings for Top 25 Filter
         top_25_teams, top_25_map = load_rankings(sidebar_season, selected_week)
         
         # Canonicalize the top 25 list for filtering
         if top_25_teams:
             top_25_teams_canon = [to_canonical(t) for t in top_25_teams]
-            # Also rebuild map with canonical keys for display lookups
-            # Note: This assumes the original key in top_25_map is what we want to match against? 
-            # No, we want to match the 'home_team' column (which is canonical) against the map.
-            # So we need map: {canonical_name: rank}
             top_25_map_canon = {to_canonical(k): v for k, v in top_25_map.items()}
         else:
             top_25_teams_canon = []
@@ -388,15 +385,10 @@ with tab1:
         # Enrich Team Names with Rankings (e.g. "#1 Oregon")
         if top_25_map_canon:
             def add_rank(team):
-                # Team here is already canonical (from picks_df)
                 if team in top_25_map_canon:
                     return f"#{top_25_map_canon[team]} {team}"
                 return team
-                
-            # Update displayed team names
-            # Note: This logic runs BEFORE filtering? No, let's run it.
             
-            # Create display columns
             picks_df["home_team_display"] = picks_df["home_team"].apply(add_rank)
             picks_df["away_team_display"] = picks_df["away_team"].apply(add_rank)
         else:
@@ -409,12 +401,7 @@ with tab1:
 
         # Team Filter
         all_teams = sorted(list(set(picks_df["home_team"].unique()) | set(picks_df["away_team"].unique())))
-        
-        # Pre-select specific team if user searched for it
-        default_teams = []
-        
-        # Add selectbox for team filtering
-        selected_teams = col3.multiselect("Filter by Team", all_teams, default=default_teams, placeholder="Select teams to filter...")
+        selected_teams = col3.multiselect("Filter by Team", all_teams, placeholder="Select teams to filter...")
         
         # --- COLUMN EXPLANATIONS ---
         with st.expander("ℹ️  Column Definitions (Click to Expand)", expanded=False):
@@ -425,31 +412,19 @@ with tab1:
             - **home_sp_plus / away_sp_plus**: The team's SP+ efficiency rating (Higher is better).
 
             ### **Spread Betting (ATS)**
-            - **fair_spread_home**: The model's calculated "Fair Line". 
-                - Negative (e.g., -7.5) = Home is favored by 7.5 points.
-                - Positive (e.g., +3.0) = Home is underdog by 3 points.
-            - **market_spread_home**: The current line at DraftKings/FanDuel.
-            - **dk_spread_home / fd_spread_home**: Specific lines from DraftKings and FanDuel.
-            - **edge_spread_pts**: The "value" the model sees. 
-                - `Fair Spread + Market Spread`
-                - **Positive Edge** = Bet on **Home Team**.
-                - **Negative Edge** = Bet on **Away Team**.
-            - **kelly_spread**: Recommended bet size (fraction of bankroll) for the spread bet.
-
+            - **DK Line**: DraftKings Spread. (e.g., -7.5 = Home Favorite).
+            - **FD Line**: FanDuel Spread.
+            - **Model Spread**: The model's calculated "Fair Line".
+            - **ATS Pick**: The model's recommendation (Team, Line, Confidence).
+            
             ### **Moneyline (Win/Loss)**
-            - **p_home_win**: The model's estimated probability (0% to 100%) that the Home Team wins the game outright.
-            - **market_ml_home**: The Vegas moneyline odds (e.g., -150, +130).
-            - **market_ml_home_p**: The implied probability of the Vegas odds.
-            - **edge_ml_prob**: `Model Probability - Market Implied Probability`. Positive means the model thinks the team is more likely to win than Vegas does.
-            - **kelly_ml**: Recommended bet size for the moneyline.
+            - **Home Win %**: The model's estimated probability that the Home Team wins.
+            - **ML Pick**: The model's recommendation for the straight-up winner.
 
             ### **Totals (Over/Under)**
-            - **fair_total**: The model's predicted total points scored by both teams combined.
-            - **market_total**: The current Over/Under line in Vegas.
-            - **edge_total_pts**: `Fair Total - Market Total`.
-                - **Positive** = Model predicts **MORE** points (Bet Over).
-                - **Negative** = Model predicts **FEWER** points (Bet Under).
-            - **kelly_total**: Recommended bet size for the total.
+            - **Total**: The market Over/Under line.
+            - **Model Total**: The model's predicted total points.
+            - **O/U Pick**: The model's recommendation (Over/Under, Confidence).
             """)
 
         # Display Metrics
@@ -457,16 +432,17 @@ with tab1:
         
         # Apply Filters
         if min_conf > 0:
-            # Filter by confidence (This is tricky as conf is embedded in string, skipping for now or needing parsing)
-            pass
+            # Filter by confidence (This is tricky as conf is embedded in string)
+            # Parse confidence from ATS Pick string "(X/10)"
+            def get_conf(s):
+                try:
+                    return int(s.split('(')[-1].split('/')[0])
+                except:
+                    return 0
+            filtered_df["conf_val"] = filtered_df["ATS Pick"].apply(get_conf)
+            filtered_df = filtered_df[filtered_df["conf_val"] >= min_conf]
 
         if show_top_25 and top_25_teams_canon:
-            # Use RAW team names for filtering logic
-            # Need to ensure 'top_25_teams' contains canonical team names
-            # Note: rankings API might return different names than canonical 'team_mapping'.
-            # Ideally we should map them, but assuming CFBD consistency for now.
-            
-            # We filter on the ORIGINAL columns, not the display ones
             filtered_df = filtered_df[
                 (filtered_df["home_team"].isin(top_25_teams_canon)) | 
                 (filtered_df["away_team"].isin(top_25_teams_canon))
@@ -486,14 +462,12 @@ with tab1:
                 (filtered_df["away_team"].isin(selected_teams))
             ]
         
-        # Merge logos if available (Already done above!)
-        
         # Select Main Columns for Display
         # Use DISPLAY columns for team names
         display_cols = [
             "away_logo", "away_team_display", "home_logo", "home_team_display", 
-            "DK Line", "FD Line", "ATS Pick",
-            "ML Pick",
+            "DK Line", "FD Line", "Model Spread", "ATS Pick",
+            "ML Pick", "Home Win %",
             "Total", "Model Total", "O/U Pick"
         ]
         
@@ -572,6 +546,9 @@ with tab2:
                 # 2. Build Row (Neutral Rest = 7 days)
                 X = construct_matchup_row(home_stats, away_stats, home_rest=7, away_rest=7)
                 
+                # For hypothetical, assume market spread is 0 (Pick'em) to get neutral field probability
+                X["market_spread_home"] = 0.0
+                
                 # Ensure columns match model EXACTLY (add missing, drop extra, reorder)
                 if hasattr(ats_model, "feature_names") and ats_model.feature_names:
                     # 1. Add missing
@@ -613,7 +590,9 @@ with tab2:
                 winner = home_team if ml_prob > 0.5 else away_team
                 win_prob = max(ml_prob, 1-ml_prob)
                 
-                # Spread Logic
+                # Spread Logic: Approximate fair spread from win probability
+                # Rule of thumb: P(Win) = 0.5 + Spread/25 (approx)
+                # Spread = (P(Win) - 0.5) * 25 * -1 (negative for favorite)
                 implied_spread = (ml_prob - 0.5) * 25 * -1
                 
                 # Main Result Header
@@ -631,17 +610,25 @@ with tab2:
                 # Create a 1-row dataframe for this matchup
                 matchup_df = pd.DataFrame([{
                     "home_team": home_team, "away_team": away_team,
-                    "fair_spread_home": implied_spread, "market_spread_home": 0.0, # No market for hypothetical
-                    "p_home_win": ml_prob, "market_ml_home": 0,
-                    "fair_total": pred_total, "market_total": 0.0
+                    "fair_spread_home": implied_spread, 
+                    "market_spread_home": 0.0, # Neutral/Pick'em baseline
+                    "dk_spread_home": 0.0,
+                    "fd_spread_home": 0.0,
+                    "p_home_win": ml_prob, "market_ml_home": -110,
+                    "fair_total": pred_total, "market_total": 50.0 # Dummy market total
                 }])
                 
                 # Enrich it
                 matchup_df = enrich_picks_data(matchup_df)
                 
+                # Display Columns
+                lab_display_cols = [
+                    "ATS Pick", "ML Pick", "Model Spread", "Home Win %", "Model Total", "O/U Pick"
+                ]
+                
                 # Show clean table
                 st.dataframe(
-                    matchup_df[["ATS Pick", "ML Pick", "O/U Pick", "Model Spread", "Model Total"]].style.format(),
+                    matchup_df[lab_display_cols],
                     use_container_width=True,
                     hide_index=True
                 )
