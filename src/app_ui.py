@@ -52,6 +52,8 @@ def load_team_info():
     if cache_path.exists():
         df = pd.read_parquet(cache_path)
         if "conference" in df.columns:
+            # Ensure canonical names
+            df["school"] = df["school"].apply(to_canonical)
             return df
         # else fall through to re-fetch
     
@@ -61,6 +63,10 @@ def load_team_info():
         if not teams_df.empty:
             # Save relevant columns
             cols = ["id", "school", "mascot", "abbreviation", "conference", "color", "alt_color", "logos"]
+            
+            # Canonicalize school names to match our internal data
+            teams_df["school"] = teams_df["school"].apply(to_canonical)
+            
             # specific handling for logos (list of strings)
             teams_df["logo"] = teams_df["logos"].apply(lambda x: x[0] if isinstance(x, list) and len(x) > 0 else None)
             
