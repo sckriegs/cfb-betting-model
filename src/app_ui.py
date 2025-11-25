@@ -489,8 +489,8 @@ with tab1:
         # Use DISPLAY columns for team names
         display_cols = [
             "away_logo", "away_team_display", "home_logo", "home_team_display", 
-            "DK Line", "FD Line", "Model Spread", "ATS Pick",
-            "p_home_win", "ML Pick",
+            "DK Line", "FD Line", "ATS Pick",
+            "ML Pick",
             "Total", "Model Total", "O/U Pick"
         ]
         
@@ -500,7 +500,6 @@ with tab1:
             "home_logo": st.column_config.ImageColumn("Home", width="small"),
             "away_team_display": "Away Team",
             "home_team_display": "Home Team",
-            "p_home_win": st.column_config.NumberColumn("Win %", format="%.1f%%"),
         }
 
         # Display DataFrame with configs
