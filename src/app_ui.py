@@ -357,6 +357,7 @@ with tab1:
         # Filters
         col1, col2, col3, col4 = st.columns([1, 1, 2, 1])
         min_conf = col1.slider("Minimum Confidence", 0, 10, 0)
+        mobile_view = st.toggle("📱 Mobile View", value=False)
         
         # Merge logos/conference info if available
         if team_info is not None:
@@ -486,14 +487,48 @@ with tab1:
             "home_team_display": "Home Team",
         }
 
-        # Display DataFrame with configs
-        st.dataframe(
-            filtered_df[display_cols],
-            column_config=column_config,
-            use_container_width=True,
-            height=800,
-            hide_index=True
-        )
+        if mobile_view:
+            st.markdown("---")
+            for idx, row in filtered_df.iterrows():
+                with st.container(border=True):
+                    # Header: Logos and Names
+                    c1, c2, c3 = st.columns([1, 4, 1])
+                    if row.get("away_logo"):
+                        c1.image(row["away_logo"], width=40)
+                    
+                    c2.markdown(f"<h4 style='text-align: center; margin: 0;'>{row['away_team_display']} <br>@<br> {row['home_team_display']}</h4>", unsafe_allow_html=True)
+                    
+                    if row.get("home_logo"):
+                        c3.image(row["home_logo"], width=40)
+                    
+                    st.divider()
+                    
+                    # Betting Lines
+                    k1, k2, k3 = st.columns(3)
+                    k1.markdown(f"**DK:** {row.get('DK Line', 'N/A')}")
+                    k2.markdown(f"**FD:** {row.get('FD Line', 'N/A')}")
+                    k3.markdown(f"**O/U:** {row.get('Total', 'N/A')}")
+                    
+                    st.divider()
+                    
+                    # Picks
+                    p1, p2 = st.columns(2)
+                    p1.info(f"**ATS:** {row['ATS Pick']}")
+                    p2.success(f"**ML:** {row['ML Pick']}")
+                    
+                    p3, p4 = st.columns(2)
+                    p3.warning(f"**Total:** {row['O/U Pick']}")
+                    p4.markdown(f"**Model:** {row['Model Spread']}")
+
+        else:
+            # Display DataFrame with configs
+            st.dataframe(
+                filtered_df[display_cols],
+                column_config=column_config,
+                use_container_width=True,
+                height=800,
+                hide_index=True
+            )
 
 # --- TAB 2: THE LAB ---
 with tab2:
