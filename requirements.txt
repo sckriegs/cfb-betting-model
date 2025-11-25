@@ -9,3 +9,4 @@ geopy
 plotly
 tenacity
 typer
+pydantic
