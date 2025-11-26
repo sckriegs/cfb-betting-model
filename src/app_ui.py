@@ -282,6 +282,66 @@ def enrich_picks_data(df):
     
     return df
 
+def enrich_with_live_scores(df, season, week):
+    """Fetch live game status/scores and update dataframe."""
+    try:
+        from src.data.cfbd_client import CFBDClient
+        from src.data.team_mapping import to_canonical
+        
+        # Check API Key
+        if not get_api_key():
+            return df
+            
+        client = CFBDClient(api_key=get_api_key())
+        # Fetch games for this week
+        games = client.get_games(season=season, week=week)
+        
+        if games.empty:
+            return df
+            
+        # Build Score Map: (home_canonical, away_canonical) -> Score String
+        score_map = {}
+        
+        for _, game in games.iterrows():
+            h_team = to_canonical(game.get('home_team', ''))
+            a_team = to_canonical(game.get('away_team', ''))
+            
+            h_pts = game.get('home_points')
+            a_pts = game.get('away_points')
+            completed = game.get('completed', False)
+            
+            # Convert to int/str
+            h_val = int(h_pts) if pd.notna(h_pts) else 0
+            a_val = int(a_pts) if pd.notna(a_pts) else 0
+            
+            # Determine display
+            if completed:
+                score_str = f"{a_val} - {h_val}" # Away - Home
+            elif (h_val > 0 or a_val > 0):
+                score_str = f"{a_val} - {h_val} (Live)"
+            else:
+                score_str = "-"
+            
+            score_map[(h_team, a_team)] = score_str
+
+        # Update DataFrame
+        def update_row(row):
+            h = row['home_team']
+            a = row['away_team']
+            if (h, a) in score_map:
+                return score_map[(h, a)]
+            return row.get('Score', '-')
+            
+        if not df.empty:
+             df['Score'] = df.apply(update_row, axis=1)
+             
+        return df
+        
+    except Exception as e:
+        # Fail silently or log, don't break app
+        print(f"Could not fetch live scores: {e}")
+        return df
+
 # --- MAIN APP ---
 st.title("🏈 CFB Betting Model Interface")
 
@@ -447,6 +507,8 @@ with tab1:
         # Enrich with explicit picks (if not historical)
         if "Result" not in picks_df.columns:
             picks_df = enrich_picks_data(picks_df)
+            # Fetch Live Scores for Current Week Games
+            picks_df = enrich_with_live_scores(picks_df, sidebar_season, selected_week)
         
         # Filters
         col1, col2, col3, col4 = st.columns([1, 1, 2, 1])
