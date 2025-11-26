@@ -187,17 +187,48 @@ def evaluate_total(test_df: pd.DataFrame, model, market_total_col: str = "market
         if valid_mask.any():
             mae_vs_market = mean_absolute_error(market_total[valid_mask], y_pred[valid_mask])
             correlation = np.corrcoef(market_total[valid_mask], y_pred[valid_mask])[0, 1] if len(market_total[valid_mask]) > 1 else 0.0
+            
+            # Calculate O/U Hit Rate
+            # Align y_true (actual total) with the valid mask
+            # y_true corresponds to X, and market_total corresponds to X.
+            y_true_valid = y_true[valid_mask]
+            y_pred_valid = y_pred[valid_mask]
+            market_valid = market_total[valid_mask]
+            
+            # Determine Picks (Model vs Market)
+            pick_over = y_pred_valid > market_valid
+            pick_under = y_pred_valid < market_valid
+            
+            # Determine Outcomes (Actual vs Market)
+            actual_over = y_true_valid > market_valid
+            actual_under = y_true_valid < market_valid
+            
+            # Calculate Hits
+            # Hit if (Pick Over AND Actual Over) OR (Pick Under AND Actual Under)
+            hits = (pick_over & actual_over) | (pick_under & actual_under)
+            
+            # Filter out pushes (Actual == Market) and "No Pick" (Model == Market) from denominator
+            # Usually we care about cases where we made a pick and there was a result
+            valid_bet_mask = (pick_over | pick_under) & (y_true_valid != market_valid)
+            
+            if valid_bet_mask.any():
+                hit_rate = hits[valid_bet_mask].mean()
+            else:
+                hit_rate = 0.0
         else:
             mae_vs_market = None
             correlation = None
+            hit_rate = None
     else:
         mae_vs_market = None
         correlation = None
+        hit_rate = None
 
     metrics = {
         "mae": mean_absolute_error(y_true, y_pred),
         "mae_vs_market": mae_vs_market,
         "correlation": correlation,
+        "hit_rate": hit_rate,
         "n_samples": len(y_true),
     }
 
