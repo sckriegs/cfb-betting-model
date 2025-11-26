@@ -255,4 +255,30 @@ class CFBDClient:
         data = response.json()
         return pd.DataFrame(data) if data else pd.DataFrame()
 
+    def get_matchup(self, team1: str, team2: str, min_year: int = 1869, max_year: int = 2025) -> dict:
+        """Get matchup history between two teams.
+        
+        Args:
+            team1: First team name
+            team2: Second team name
+            min_year: Start year (default 1869)
+            max_year: End year (default 2025)
+            
+        Returns:
+            Dictionary with matchup history
+        """
+        params = {
+            "team1": team1,
+            "team2": team2,
+            "minYear": min_year,
+            "maxYear": max_year
+        }
+        # Note: Matchup endpoint might 400/404 if teams invalid, handle gracefully in UI
+        try:
+            response = self._get("/teams/matchup", params=params)
+            return response.json()
+        except requests.exceptions.HTTPError:
+            return {}
+
+
 

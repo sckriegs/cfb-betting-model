@@ -768,6 +768,61 @@ with tab2:
                     use_container_width=True,
                     hide_index=True
                 )
+
+                # --- NEW: Series History ---
+                st.subheader("📜 Series History")
+                
+                # Import Client
+                from src.data.cfbd_client import CFBDClient
+                
+                # Mapping for CFBD Name Compatibility
+                cfbd_name_map = {
+                    "Mississippi": "Ole Miss",
+                    "Hawai'i": "Hawaii", 
+                    "San José State": "San Jose State",
+                    # Add other known mismatches if they arise
+                }
+                
+                q_home = cfbd_name_map.get(home_team, home_team)
+                q_away = cfbd_name_map.get(away_team, away_team)
+                
+                with st.spinner(f"Fetching history for {q_home} vs {q_away}..."):
+                    try:
+                        client = CFBDClient(api_key=get_api_key())
+                        matchup_data = client.get_matchup(q_home, q_away)
+                        
+                        if matchup_data and "games" in matchup_data:
+                            games = matchup_data["games"]
+                            if games:
+                                st.markdown(f"**Overall Series:** {matchup_data.get('team1')} vs {matchup_data.get('team2')}")
+                                st.markdown(f"*Total Games:* {len(games)}")
+                                
+                                hist_df = pd.DataFrame(games)
+                                # Format Date
+                                hist_df["Date"] = pd.to_datetime(hist_df["date"]).dt.strftime('%Y-%m-%d')
+                                
+                                def format_result(row):
+                                    h_team = row.get('homeTeam', 'Home')
+                                    a_team = row.get('awayTeam', 'Away')
+                                    h_score = row.get('homeScore', 0)
+                                    a_score = row.get('awayScore', 0)
+                                    return f"{h_team} {h_score} - {a_team} {a_score}"
+                                
+                                hist_df["Result"] = hist_df.apply(format_result, axis=1)
+                                
+                                # Select and sort
+                                display_hist = hist_df[["season", "Date", "winner", "Result"]].sort_values("season", ascending=False)
+                                display_hist.columns = ["Season", "Date", "Winner", "Score"]
+                                
+                                st.dataframe(display_hist, hide_index=True, use_container_width=True)
+                            else:
+                                st.info("These teams have never played each other.")
+                        else:
+                            st.info(f"No historical matchup data found for {q_home} vs {q_away}.")
+                            
+                    except Exception as e:
+                        st.warning(f"Could not load history: {e}")
+
                 
                 # Tale of the Tape
                 st.subheader("Tale of the Tape")
