@@ -58,11 +58,27 @@ def ingest_season(season: int, client: Optional[CFBDClient] = None) -> None:
     if not games.empty:
         write_parquet(games, str(raw_dir / "games" / f"{season}.parquet"))
 
-    # Lines (closing lines where available)
+    # Lines (fetch week by week to ensure completeness)
     logger.info(f"  Fetching lines for {season}...")
-    lines = client.get_lines(season=season)
-    if not lines.empty:
+    all_lines = []
+    # Fetching by season often misses recent weeks data in CFBD API. Iterate weeks.
+    for w in range(1, 20):
+        try:
+            w_lines = client.get_lines(season=season, week=w)
+            if not w_lines.empty:
+                all_lines.append(w_lines)
+        except Exception as e:
+            logger.debug(f"No lines for week {w}: {e}")
+            
+    if all_lines:
+        lines = pd.concat(all_lines, ignore_index=True)
+        # Deduplicate by game ID
+        lines = lines.drop_duplicates(subset=["id"])
         write_parquet(lines, str(raw_dir / "lines" / f"{season}.parquet"))
+    else:
+        lines = client.get_lines(season=season)
+        if not lines.empty:
+            write_parquet(lines, str(raw_dir / "lines" / f"{season}.parquet"))
 
     # Season stats
     logger.info(f"  Fetching season stats for {season}...")

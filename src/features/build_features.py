@@ -364,17 +364,21 @@ def build_features_for_season(season: int, force_refresh: bool = False) -> pd.Da
     # This ensures market_spread_home is available during training, not just prediction
     market_spreads = []
     if lines is not None and not lines.empty:
+        print(f"DEBUG: Total lines loaded: {len(lines)}")
         for _, line_row in lines.iterrows():
             home_team = line_row.get("homeTeam")
             away_team = line_row.get("awayTeam")
             week = line_row.get("week")
             lines_array = line_row.get("lines")
             
+            if isinstance(lines_array, np.ndarray):
+                lines_array = lines_array.tolist()
+            
             market_spread = None
             market_ml = None
             market_total = None
             
-            if lines_array is not None and len(lines_array) > 0:
+            if lines_array is not None and isinstance(lines_array, list) and len(lines_array) > 0:
                 spreads = []
                 totals = []
                 home_mls = []
@@ -442,6 +446,7 @@ def build_features_for_season(season: int, force_refresh: bool = False) -> pd.Da
             # Calculate targets (from actual results if available)
             home_score = game.get("homePoints")
             away_score = game.get("awayPoints")
+            
             if pd.notna(home_score) and pd.notna(away_score):
                 home_margin = float(home_score) - float(away_score)
                 total_points = float(home_score) + float(away_score)
