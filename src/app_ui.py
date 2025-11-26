@@ -120,6 +120,13 @@ def load_features(season):
         return pd.read_parquet(path)
     return None
 
+@st.cache_data
+def load_history():
+    path = get_data_dir() / "processed" / "historical_picks.parquet"
+    if path.exists():
+        return pd.read_parquet(path)
+    return None
+
 @st.cache_resource
 def load_models(season):
     data_dir = get_data_dir()
@@ -324,10 +331,48 @@ with tab1:
     # 3. Check if file exists
     file_path = reports_dir / f"{sidebar_season}_w{selected_week}_picks.csv"
     
+    # Check history
+    history_df = load_history()
+    historical_week_data = None
+    if history_df is not None:
+        mask = (history_df["season"] == sidebar_season) & (history_df["week"] == selected_week)
+        if mask.any():
+            historical_week_data = history_df[mask].copy()
+    
     # Force regeneration checkbox
     force_refresh = st.checkbox("Force Refresh (Fetch Live Odds)")
     
-    if file_path.exists() and not force_refresh:
+    if historical_week_data is not None and not force_refresh:
+        st.info(f"Viewing Historical Results for {sidebar_season} Week {selected_week}")
+        picks_df = historical_week_data
+        
+        # Map history columns to UI columns
+        def format_hist_pick(row):
+            # Spread text
+            spread_val = row['market_spread_home']
+            # If prob > 0.5, picked Home.
+            picked_home = row['ats_prob'] > 0.5
+            team = row['home_team'] if picked_home else row['away_team']
+            line = spread_val if picked_home else -spread_val
+            
+            # Result
+            icon = "✅" if row['Result'] == "Win" else "❌"
+            
+            return f"{team} ({line:+.1f}) {icon}"
+
+        picks_df["ATS Pick"] = picks_df.apply(format_hist_pick, axis=1)
+        
+        # Dummy columns for display
+        picks_df["DK Line"] = picks_df["market_spread_home"].apply(lambda x: f"{x:+.1f}")
+        picks_df["FD Line"] = picks_df["market_spread_home"].apply(lambda x: f"{x:+.1f}")
+        picks_df["Model Spread"] = "N/A" 
+        picks_df["ML Pick"] = "N/A"
+        picks_df["Total"] = picks_df["market_total"]
+        picks_df["Model Total"] = "N/A"
+        picks_df["O/U Pick"] = "N/A"
+        picks_df["p_home_win"] = 0.5 # Dummy for sort/filter if needed
+
+    elif file_path.exists() and not force_refresh:
         # Load existing
         picks_df = pd.read_csv(file_path)
         st.success(f"Loaded existing picks for Week {selected_week}")
@@ -357,8 +402,9 @@ with tab1:
                 picks_df = None
 
     if picks_df is not None:
-        # Enrich with explicit picks
-        picks_df = enrich_picks_data(picks_df)
+        # Enrich with explicit picks (if not historical)
+        if "Result" not in picks_df.columns:
+            picks_df = enrich_picks_data(picks_df)
         
         # Filters
         col1, col2, col3, col4 = st.columns([1, 1, 2, 1])
