@@ -390,8 +390,16 @@ with tab1:
         picks_df["FD Line"] = picks_df["DK Line"]
         picks_df["Model Spread"] = "N/A" 
         picks_df["Total"] = picks_df["market_total"]
-        picks_df["Model Total"] = picks_df["pred_total"].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "N/A")
-        picks_df["p_home_win"] = picks_df["ml_prob"] if "ml_prob" in picks_df else 0.5
+        
+        if "pred_total" in picks_df.columns:
+            picks_df["Model Total"] = picks_df["pred_total"].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "N/A")
+        else:
+            picks_df["Model Total"] = "N/A"
+            
+        if "ml_prob" in picks_df.columns:
+            picks_df["p_home_win"] = picks_df["ml_prob"]
+        else:
+            picks_df["p_home_win"] = 0.5
 
     elif file_path.exists() and not force_refresh:
         # Load existing
