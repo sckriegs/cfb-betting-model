@@ -654,6 +654,11 @@ def generate_picks(season: int, week: int, use_live_odds: bool = False) -> pd.Da
                 market_records.append(record)
             
             market_df = pd.DataFrame(market_records)
+            
+            # Ensure columns exist
+            for col in ["dk_spread_home", "fd_spread_home", "market_spread_home", "market_ml_home", "market_total"]:
+                if col not in market_df.columns:
+                    market_df[col] = None
     else:
         logger.info("Loading CFBD closing lines...")
         market_df = load_cfbd_closing_lines(season, week)
