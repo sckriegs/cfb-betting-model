@@ -344,16 +344,18 @@ with tab1:
     
     if historical_week_data is not None and not force_refresh:
         st.info(f"Viewing Historical Results for {sidebar_season} Week {selected_week}")
-        picks_df = historical_week_data
+        picks_df = historical_week_data.copy()
         
         # Map history columns to UI columns
         def format_hist_pick(row):
-            # Spread text
-            spread_val = row['market_spread_home']
+            # Spread logic: Feature is Hurdle (+ for Fav). Display is Betting Line (- for Fav).
+            # So Display Home Line = -1 * Feature
+            home_line = -1 * row['market_spread_home']
+            
             # If prob > 0.5, picked Home.
             picked_home = row['ats_prob'] > 0.5
             team = row['home_team'] if picked_home else row['away_team']
-            line = spread_val if picked_home else -spread_val
+            line = home_line if picked_home else -home_line
             
             # Result
             icon = "✅" if row['Result'] == "Win" else "❌"
@@ -362,15 +364,34 @@ with tab1:
 
         picks_df["ATS Pick"] = picks_df.apply(format_hist_pick, axis=1)
         
+        # Map ML Pick
+        def format_ml_hist(row):
+            if "ml_prob" not in row or pd.isna(row["ml_prob"]): return "N/A"
+            picked_home = row["ml_prob"] > 0.5
+            team = row["home_team"] if picked_home else row["away_team"]
+            conf = int(abs(row["ml_prob"] - 0.5) * 20) 
+            icon = "✅" if row.get("ml_correct") else "❌" # Use get in case of older parquet
+            return f"{team} ({conf}/10) {icon}"
+        
+        picks_df["ML Pick"] = picks_df.apply(format_ml_hist, axis=1)
+
+        # Map O/U Pick
+        def format_ou_hist(row):
+            if "pred_total" not in row or pd.isna(row["pred_total"]): return "N/A"
+            if pd.isna(row["market_total"]): return "N/A"
+            pick = "OVER" if row["pred_total"] > row["market_total"] else "UNDER"
+            icon = "✅" if row.get("total_correct") else "❌"
+            return f"{pick} {icon}"
+
+        picks_df["O/U Pick"] = picks_df.apply(format_ou_hist, axis=1)
+        
         # Dummy columns for display
-        picks_df["DK Line"] = picks_df["market_spread_home"].apply(lambda x: f"{x:+.1f}")
-        picks_df["FD Line"] = picks_df["market_spread_home"].apply(lambda x: f"{x:+.1f}")
+        picks_df["DK Line"] = picks_df["market_spread_home"].apply(lambda x: f"{-x:+.1f}" if pd.notna(x) else "N/A") # Negate for display
+        picks_df["FD Line"] = picks_df["DK Line"]
         picks_df["Model Spread"] = "N/A" 
-        picks_df["ML Pick"] = "N/A"
         picks_df["Total"] = picks_df["market_total"]
-        picks_df["Model Total"] = "N/A"
-        picks_df["O/U Pick"] = "N/A"
-        picks_df["p_home_win"] = 0.5 # Dummy for sort/filter if needed
+        picks_df["Model Total"] = picks_df["pred_total"].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "N/A")
+        picks_df["p_home_win"] = picks_df["ml_prob"] if "ml_prob" in picks_df else 0.5
 
     elif file_path.exists() and not force_refresh:
         # Load existing
