@@ -388,7 +388,15 @@ with tab1:
         # Dummy columns for display
         picks_df["DK Line"] = picks_df["market_spread_home"].apply(lambda x: f"{-x:+.1f}" if pd.notna(x) else "N/A") # Negate for display
         picks_df["FD Line"] = picks_df["DK Line"]
-        picks_df["Model Spread"] = "N/A" 
+        
+        # Calculate Model Spread (Approximate from Probability)
+        # fair_spread (hurdle) = market_spread + (prob - 0.5) * 25
+        if "ats_prob" in picks_df.columns:
+            picks_df["fair_spread_approx"] = picks_df["market_spread_home"] + (picks_df["ats_prob"] - 0.5) * 25
+            picks_df["Model Spread"] = picks_df["fair_spread_approx"].apply(lambda x: f"{-x:+.1f}" if pd.notna(x) else "N/A")
+        else:
+            picks_df["Model Spread"] = "N/A"
+            
         picks_df["Total"] = picks_df["market_total"]
         
         if "pred_total" in picks_df.columns:

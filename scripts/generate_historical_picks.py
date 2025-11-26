@@ -33,6 +33,10 @@ def generate_history():
         
     features_df = pd.concat(dfs, ignore_index=True)
     
+    # Filter out games with 0 total points (unplayed games that were filled with 0s)
+    # This prevents fake results for future games
+    features_df = features_df[features_df["total_points"] > 0].copy()
+    
     # Walk forward
     splits = get_walk_forward_splits(features_df)
     
