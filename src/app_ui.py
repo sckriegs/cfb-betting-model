@@ -408,11 +408,15 @@ with tab1:
             picks_df["p_home_win"] = picks_df["ml_prob"]
         else:
             picks_df["p_home_win"] = 0.5
+            
+        # Score Column
+        picks_df["Score"] = picks_df.apply(lambda x: f"{int(x.get('away_points', 0))} - {int(x.get('home_points', 0))}", axis=1)
 
     elif file_path.exists() and not force_refresh:
         # Load existing
         picks_df = pd.read_csv(file_path)
         st.success(f"Loaded existing picks for Week {selected_week}")
+        picks_df["Score"] = "-"
     else:
         # Generate on demand
         st.info(f"Generating picks for Week {selected_week} with Live Odds...")
@@ -431,6 +435,7 @@ with tab1:
                     preds_df.to_csv(file_path, index=False)
                     picks_df = preds_df
                     st.success("Picks generated!")
+                    picks_df["Score"] = "-"
                 else:
                     st.error(f"No games found for Week {selected_week}")
                     picks_df = None
@@ -562,7 +567,7 @@ with tab1:
         # Select Main Columns for Display
         # Use DISPLAY columns for team names
         display_cols = [
-            "away_logo", "away_team_display", "home_logo", "home_team_display", 
+            "away_logo", "away_team_display", "Score", "home_logo", "home_team_display", 
             "DK Line", "FD Line", "Model Spread", "ATS Pick",
             "ML Pick",
             "Total", "Model Total", "O/U Pick"
